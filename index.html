@@ -906,7 +906,7 @@
                     <div class="send-money-box"><h3 style="color:var(--success-green); font-family:'Rajdhani'; font-size:24px; font-weight:900; margin-bottom:15px;"><i class="fa fa-id-card"></i> YOUR SEND MONEY ID</h3><div class="user-id-display" style="border-color:var(--success-green);"><span class="user-id-text" id="userSendId" style="color:var(--success-green); font-size:20px;">MH-USER-12345</span><button class="copy-btn" onclick="copyUserSendId()" style="background:var(--success-green); color:black;"><i class="fa fa-copy"></i> COPY ID</button></div><p style="color:#aaa; font-size:12px; margin-top:10px;">Share this ID with anyone to receive PKR directly into your wallet.</p></div>
                     <div class="send-money-box"><h2 style="color:var(--primary); font-family:'Rajdhani'; font-size:32px; font-weight:900; margin-bottom:20px; border-bottom:2px solid #112222; padding-bottom:15px;"><i class="fa fa-paper-plane"></i> TRANSFER FUNDS</h2><div class="form-label" style="color:var(--vip-gold);">OFFICIAL ADMIN ID (For Admin Payments)</div><div class="admin-id-container"><input type="text" id="adminIdReadonly" class="admin-id-input" value="ADMIN_MH" readonly><button class="copy-btn-large" onclick="copyAdminId()" style="background:var(--vip-gold); color:black;"><i class="fa fa-copy"></i> COPY</button></div><div class="form-label">ENTER RECIPIENT ID</div><input type="text" id="recipientIdInput" class="input-box" placeholder="Paste Admin or User ID here..." style="font-family:monospace; font-size:16px; font-weight:bold;"><div class="form-label">TRANSFER AMOUNT (PKR)</div><input type="number" id="sendAmount" class="input-box" placeholder="Enter Amount to Send" min="1" step="1" style="font-weight:bold; font-size:18px;"><div class="form-label">YOUR NAME</div><input type="text" id="sendName" class="input-box" placeholder="Confirm Your Full Name"><div class="form-label">YOUR EMAIL</div><input type="email" id="sendEmail" class="input-box" placeholder="Confirm Your Email"><div class="form-label">TRANSACTION NOTE (OPTIONAL)</div><textarea id="sendNote" class="input-box" placeholder="Add a short note..." style="height:80px;"></textarea><button class="send-money-btn" onclick="sendMoneyToUser(event)"><i class="fa fa-paper-plane"></i> SEND SECURE PAYMENT</button><p style="font-size:12px; color:var(--pending-orange); margin-top:15px; text-align:center;">Note: All user-to-user transfers must be approved by the Admin before completion.</p></div>
                     <h3 style="color:var(--primary); margin:30px 0 20px; font-family:'Rajdhani'; font-size:24px; font-weight:900;">TRANSACTION HISTORY</h3>
-                    <div class="table-responsive"><div class="history-table"><table><thead><tr><th>Date</th><th>Recipient/Sender</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead><tbody id="transactionHistoryBody"><tr><td colspan="5" style="text-align:center;">Loading transactions...</td></tr></tbody></table></div></div>
+                    <div class="table-responsive"><div class="history-table"><tr><thead><tr><th>Date</th><th>Recipient/Sender</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead><tbody id="transactionHistoryBody"><tr><td colspan="5" style="text-align:center;">Loading transactions...</td></tr></tbody></table></div></div>
                 </div>
 
                 <!-- DAILY NEWS SECTION -->
@@ -1417,6 +1417,37 @@
             }, 600);
         }
 
+        // -------------------------------------------------------------------------
+        // NEW FUNCTION: Direct dashboard load after signup/login
+        // -------------------------------------------------------------------------
+        async function loadUserDashboard(uid) {
+            if (!uid) return;
+            console.log("Loading dashboard for user", uid);
+            // Set status online
+            try {
+                await db.collection('users').doc(uid).update({ status: 'online' });
+            } catch (e) {}
+            // Load all real-time data
+            loadData(uid);
+            loadWalletData(uid);
+            loadChat(uid);
+            loadNotifications(uid);
+            loadUserPurchases(uid);
+            loadVipDirectAccess(uid);
+            loadUserReportsHistory(uid);
+            loadReferralHistory(uid);
+            loadCheckinHistory(uid);
+            loadTransactionHistory(uid);
+            listenForAdminMessages(uid);
+            startVipKeysListener();
+            // Switch UI to dashboard
+            switchPage('dashboard');
+            // Show unread summary after a short delay
+            setTimeout(() => {
+                checkAndShowUnreadSummary(uid);
+            }, 2000);
+        }
+
         function proceedAfterSplash() {
             splashCompleted = true;
             requestPushPermission();
@@ -1425,23 +1456,8 @@
                     type: 'pageview',
                     timestamp: firebase.firestore.Timestamp.now()
                 });
-                db.collection('users').doc(loggedInUser.uid).update({ status: 'online' }).catch(() => {});
-                loadData(loggedInUser.uid);
-                loadWalletData(loggedInUser.uid);
-                switchPage('dashboard');
-                loadChat(loggedInUser.uid);
-                loadNotifications(loggedInUser.uid);
-                loadUserPurchases(loggedInUser.uid);
-                loadVipDirectAccess(loggedInUser.uid);
-                loadUserReportsHistory(loggedInUser.uid);
-                loadReferralHistory(loggedInUser.uid);
-                loadCheckinHistory(loggedInUser.uid);
-                loadTransactionHistory(loggedInUser.uid);
-                listenForAdminMessages(loggedInUser.uid);
-                startVipKeysListener();
-                setTimeout(() => {
-                    checkAndShowUnreadSummary(loggedInUser.uid);
-                }, 2000);
+                // Directly load dashboard (the old method also works but we ensure it)
+                loadUserDashboard(loggedInUser.uid);
             } else {
                 switchPage('login');
             }
@@ -1507,8 +1523,8 @@
                 }
                 await db.collection('wallets').doc(res.user.uid).set({ balance: 0, totalEarned: 0, totalReferrals: 0, totalCheckins: 0, userId: res.user.uid });
                 showToast("Registration Successful!");
-                splashCompleted = false;
-                checkAppReady();
+                // Directly load dashboard for new user
+                await loadUserDashboard(res.user.uid);
             } catch(err) { showToast("ERROR: " + err.message); }
         }
 
@@ -1517,10 +1533,10 @@
             const p = document.getElementById('logPass').value;
             if(!e || !p) return showToast("ERROR: Enter Access ID and Key.");
             try {
-                await auth.signInWithEmailAndPassword(e, p);
+                const userCredential = await auth.signInWithEmailAndPassword(e, p);
                 showToast("Access Granted.");
-                splashCompleted = false;
-                checkAppReady();
+                // Directly load dashboard
+                await loadUserDashboard(userCredential.user.uid);
             } catch(err) {
                 if (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
                     showErrorModal("ACCESS DENIED", "❌ Incorrect email or password. Please try again.");
@@ -1539,15 +1555,16 @@
                 else {
                     let pass = ""; let userName = "";
                     snapshot.forEach(doc => { pass = doc.data().password; userName = doc.data().name; });
-                    const maskedPass = '••••••••';
+                    // Show actual password, not masked
+                    const actualPass = pass;
                     const forgotCard = document.getElementById('forgotPassCard');
                     forgotCard.innerHTML = `
                         <i class="fa fa-check-circle success-icon" style="font-size:80px; color:var(--success-green);"></i>
                         <h3 class="forgot-pass-title">KEY FOUND!</h3>
                         <p class="forgot-pass-subtitle">Your security key has been securely retrieved</p>
                         <p style="color:#00f2ff; margin:20px 0 10px; font-size:13px;">User: <strong>${escapeHtml(userName)}</strong></p>
-                        <div class="key-display-box"><div class="key-label">RECOVERED KEY</div><div class="key-value">${maskedPass}</div></div>
-                        <button class="btn" onclick="copyToClipboard('${pass.replace(/'/g, "\\'")}', 'Security Key Copied to Clipboard!')" style="background:linear-gradient(90deg,#004d00,var(--success-green)); color:black; font-weight:900;">COPY KEY TO CLIPBOARD</button>
+                        <div class="key-display-box"><div class="key-label">YOUR PASSWORD</div><div class="key-value">${escapeHtml(actualPass)}</div></div>
+                        <button class="btn" onclick="copyToClipboard('${actualPass.replace(/'/g, "\\'")}', 'Security Key Copied to Clipboard!')" style="background:linear-gradient(90deg,#004d00,var(--success-green)); color:black; font-weight:900;">COPY KEY TO CLIPBOARD</button>
                         <button class="btn" onclick="document.getElementById('forgotPassOverlay').style.display='none'" style="margin-top:10px; background:#111; border:1px solid #002233; color:#aaa;">CLOSE</button>
                     `;
                 }
